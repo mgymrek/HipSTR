@@ -17,7 +17,7 @@ const std::string ALT_MAP_TAG           = "XA";
 const std::string PRIMARY_ALN_SCORE_TAG = "AS";
 const std::string SUBOPT_ALN_SCORE_TAG  = "XS";
 
-void BamProcessor::add_passes_filters_tag(BamAlignment& aln, std::string& passes){
+void BamProcessor::add_passes_filters_tag(BamAlignment& aln, const std::string& passes){
   if (aln.HasTag("PF"))
     if (!aln.RemoveTag("PF"))
       printErrorAndDie("Failed to remove existing passes filters tag from BAM alignment");
@@ -34,14 +34,14 @@ void BamProcessor::passes_filters(BamAlignment& aln, std::vector<bool>& region_p
     region_passes.push_back(passes[i] == '1' ? true : false);
 }
 
-void BamProcessor::write_passing_alignment(BamAlignment& aln, std::map<std::string, std::string>& rg_to_sample, BamWriter* writer){
+void BamProcessor::write_passing_alignment(BamAlignment& aln, BamWriter* writer){
   if (writer == NULL)
     return;
   if (!writer->SaveAlignment(aln))
     printErrorAndDie("Failed to save alignment");
 }
 
-void BamProcessor::write_filtered_alignment(BamAlignment& aln, std::string filter, std::map<std::string, std::string>& rg_to_sample, BamWriter* writer){
+void BamProcessor::write_filtered_alignment(BamAlignment& aln, std::string filter, BamWriter* writer){
   if (writer == NULL)
     return;
 
@@ -57,29 +57,34 @@ void BamProcessor::write_filtered_alignment(BamAlignment& aln, std::string filte
 }
 
 void BamProcessor::extract_mappings(BamAlignment& aln, const BamHeader* bam_header,
-				    std::vector< std::pair<std::string, int32_t> >& chrom_pos_pairs){
+				    std::vector< std::pair<std::string, int32_t> >& chrom_pos_pairs) const {
   assert(chrom_pos_pairs.size() == 0);
   if (aln.RefID() == -1 || aln.CigarData().size() == 0)
     return;
   assert(aln.RefID() < bam_header->num_seqs());
   chrom_pos_pairs.push_back(std::pair<std::string, int32_t>(bam_header->ref_name(aln.RefID()), aln.Position()));
 
-  if (aln.HasTag(ALT_MAP_TAG.c_str())){
+  for (unsigned int i = 0; i < 2; i++){
+    std::string tag = (i == 0 ? "XA" : "SA");
+    if (!aln.HasTag(tag.c_str()))
+      continue;
     std::string alt_info;
-    if (!aln.GetStringTag(ALT_MAP_TAG.c_str(), alt_info))
-      printErrorAndDie("Failed to extract XA tag from BAM alignment");
+    if (!aln.GetStringTag(tag.c_str(), alt_info))
+      printErrorAndDie("Failed to extract XA or SA tag from BAM alignment");
     std::vector<std::string> alts;
     split_by_delim(alt_info, ';', alts);
-    for (unsigned int i = 0; i < alts.size(); i++){
+    for (unsigned int j = 0; j < alts.size(); j++){
       std::vector<std::string> tokens;
-      split_by_delim(alts[i], ',', tokens);
-      chrom_pos_pairs.push_back(std::pair<std::string, int32_t>(tokens[0], std::abs(std::stol(tokens[1]))));
+      split_by_delim(alts[j], ',', tokens);
+      int32_t pos = std::abs(std::stol(tokens[1]));
+      if (tokens[0].compare(chrom_pos_pairs[0].first) != 0 || std::abs(pos - chrom_pos_pairs[0].second) > 200)
+	chrom_pos_pairs.push_back(std::pair<std::string, int32_t>(tokens[0], pos));
     }
   }
 }
 
 void BamProcessor::get_valid_pairings(BamAlignment& aln_1, BamAlignment& aln_2, const BamHeader* bam_header,
-				      std::vector< std::pair<std::string, int32_t> >& p1, std::vector< std::pair<std::string, int32_t> >& p2){
+				      std::vector< std::pair<std::string, int32_t> >& p1, std::vector< std::pair<std::string, int32_t> >& p2) const {
   assert(p1.size() == 0 && p2.size() == 0);
   if (aln_1.RefID() == -1 || aln_2.RefID() == -1)
     return;
@@ -135,7 +140,7 @@ void BamProcessor::get_valid_pairings(BamAlignment& aln_1, BamAlignment& aln_2, 
   }
 }
 
-std::string BamProcessor::get_read_group(const BamAlignment& aln, std::map<std::string, std::string>& read_group_mapping){
+std::string BamProcessor::get_read_group(const BamAlignment& aln, const std::map<std::string, std::string>& read_group_mapping) const {
   std::string rg;
   if (!aln.GetStringTag("RG", rg))
     printErrorAndDie("Failed to retrieve BAM alignment's RG tag");
@@ -145,7 +150,7 @@ std::string BamProcessor::get_read_group(const BamAlignment& aln, std::map<std::
   return iter->second;
 }
 
-std::string BamProcessor::trim_alignment_name(BamAlignment& aln){
+std::string BamProcessor::trim_alignment_name(const BamAlignment& aln) const {
   std::string aln_name = aln.Filename() + aln.Name();
   if (aln_name.size() > 2){
     if (aln_name[aln_name.size()-2] == '/')
@@ -157,7 +162,7 @@ std::string BamProcessor::trim_alignment_name(BamAlignment& aln){
 // Returns true if the alignment spans at least one region in the group.
 // Reads that don't actually span the region but start/end with a soft clip are also counted as spanning,
 // as the clipped sequence frequently extends past the region
-bool BamProcessor::spans_a_region(const std::vector<Region>& regions, BamAlignment& alignment){
+bool BamProcessor::spans_a_region(const std::vector<Region>& regions, BamAlignment& alignment) const {
   for (auto region_iter = regions.begin(); region_iter != regions.end(); region_iter++){
     if (alignment.Position() > region_iter->stop() || alignment.GetEndPosition() < region_iter->start())
       continue;
@@ -170,14 +175,14 @@ bool BamProcessor::spans_a_region(const std::vector<Region>& regions, BamAlignme
   return false;
 }
 
-void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string& chrom_seq, RegionGroup& region_group,
-					 std::map<std::string, std::string>& rg_to_sample, std::map<std::string, std::string>& rg_to_library, std::vector<std::string>& rg_names,
+void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, const std::string& chrom_seq, const RegionGroup& region_group,
+					 const std::map<std::string, std::string>& rg_to_sample, std::vector<std::string>& rg_names,
 					 std::vector<BamAlnList>& paired_strs_by_rg, std::vector<BamAlnList>& mate_pairs_by_rg, std::vector<BamAlnList>& unpaired_strs_by_rg,
 					 BamWriter* pass_writer, BamWriter* filt_writer){
   locus_read_filter_time_ = clock();
   assert(reader.get_merge_type() == BamCramMultiReader::ORDER_ALNS_BY_FILE);
 
-  int32_t read_count = 0, not_spanning = 0, unique_mapping = 0, read_has_N = 0, hard_clip = 0, split_alignment = 0, low_qual_score = 0, num_filt_unpaired_reads = 0;
+  int32_t read_count = 0, not_spanning = 0, unique_mapping = 0, read_has_N = 0, hard_clip = 0, low_qual_score = 0, num_filt_unpaired_reads = 0;
   BamAlignment alignment;
   const BamHeader* bam_header = reader.bam_header();
   BamAlnList paired_str_alns, mate_alns, unpaired_str_alns;
@@ -185,7 +190,10 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
   TOO_MANY_READS = false;
 
   const std::vector<Region>& regions = region_group.regions();
-  std::string prev_file = "";
+  std::string prev_file  = "";
+  int32_t file_index     = 0;
+  std::string file_label = "0_";
+
   while (reader.GetNextAlignment(alignment)){
     // Discard reads that don't overlap the STR region and whose mate pair has no chance of overlapping the region
     if (alignment.Position() > region_group.stop() || alignment.GetEndPosition() < region_group.start()){
@@ -214,7 +222,7 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
 	if (alignment.StartsWithHardClip() || alignment.EndsWithHardClip()){
 	  read_count++;
 	  hard_clip++;
-	  write_filtered_alignment(alignment, "HARD_CLIPPED", rg_to_sample, filt_writer);
+	  write_filtered_alignment(alignment, "HARD_CLIPPED", filt_writer);
 	  continue;
 	}
 
@@ -227,9 +235,14 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
     }
 
     // Clear out mate alignment cache if we've switched to a new file to reduce memory usage
+    // and update the file label for later use
     if (prev_file.compare(alignment.Filename()) != 0){
       prev_file = alignment.Filename();
       potential_mates.clear();
+
+      std::stringstream ss;
+      ss << ++file_index << "_";
+      file_label = ss.str();
     }
 
     // Only apply tests to putative STR reads that overlap the STR region
@@ -240,13 +253,8 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
       std::string filter = "";
       read_count++;
 
-      // Ignore chimeric alignments
-      if (alignment.HasTag("SA")){
-	split_alignment++;
-	filter.append("HAS_SA_TAG");
-      }
       // Ignore reads with N bases
-      else if (alignment.QueryBases().find('N') != std::string::npos){
+      if (alignment.QueryBases().find('N') != std::string::npos){
 	read_has_N++;
 	filter.append("HAS_N_BASES");
       }
@@ -298,7 +306,7 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
 	}
       }
 
-      std::string aln_key = trim_alignment_name(alignment);
+      std::string aln_key = file_label + trim_alignment_name(alignment);
       if (pass_one){
 	add_passes_filters_tag(alignment, pass_two);
 	auto aln_iter = potential_mates.find(aln_key);
@@ -314,13 +322,13 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
 	  if (p_1.size() == 1 && p_1[0].second == alignment.Position()){
 	    paired_str_alns.push_back(alignment);
 	    mate_alns.push_back(aln_iter->second);
-	    write_passing_alignment(alignment, rg_to_sample, pass_writer);
-	    write_passing_alignment(aln_iter->second, rg_to_sample, pass_writer);
+	    write_passing_alignment(alignment, pass_writer);
+	    write_passing_alignment(aln_iter->second, pass_writer);
 	  }
 	  else {
 	    unique_mapping++;
 	    filter.append("NO_UNIQUE_MAPPING");
-	    write_filtered_alignment(alignment, filter, rg_to_sample, filt_writer);
+	    write_filtered_alignment(alignment, filter, filt_writer);
 	  }
 	  potential_mates.erase(aln_iter);
 	}
@@ -338,17 +346,17 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
 	    if (p_1.size() == 1 && p_1[0].second == alignment.Position()){
 	      paired_str_alns.push_back(alignment);
 	      mate_alns.push_back(str_iter->second);
-	      write_passing_alignment(alignment, rg_to_sample, pass_writer);
+	      write_passing_alignment(alignment, pass_writer);
 
 	      paired_str_alns.push_back(str_iter->second);
 	      mate_alns.push_back(alignment);
-	      write_passing_alignment(str_iter->second, rg_to_sample, pass_writer);
+	      write_passing_alignment(str_iter->second, pass_writer);
 	    }
 	    else {
 	      unique_mapping += 2;
 	      std::string filter = "NO_UNIQUE_MAPPING";
-	      write_filtered_alignment(alignment, filter, rg_to_sample, filt_writer);
-	      write_filtered_alignment(str_iter->second, filter, rg_to_sample, filt_writer);
+	      write_filtered_alignment(alignment, filter, filt_writer);
+	      write_filtered_alignment(str_iter->second, filter, filt_writer);
 	    }
 	    potential_strs.erase(str_iter);
 	  }
@@ -358,12 +366,12 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
       }
       else {
 	assert(!filter.empty());
-	write_filtered_alignment(alignment, filter, rg_to_sample, filt_writer);
+	write_filtered_alignment(alignment, filter, filt_writer);
 	potential_mates.insert(std::pair<std::string, BamAlignment>(aln_key, alignment));
       }
     }
     else {
-      std::string aln_key = trim_alignment_name(alignment);
+      std::string aln_key = file_label + trim_alignment_name(alignment);
       auto aln_iter = potential_strs.find(aln_key);
       if (aln_iter != potential_strs.end()){
 	if (alignment.IsFirstMate() == aln_iter->second.IsFirstMate())
@@ -374,13 +382,13 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
 	if (p_1.size() == 1 && p_1[0].second == aln_iter->second.Position()){
 	  paired_str_alns.push_back(aln_iter->second);
 	  mate_alns.push_back(alignment);
-	  write_passing_alignment(aln_iter->second, rg_to_sample, pass_writer);
-	  write_passing_alignment(alignment, rg_to_sample, pass_writer);
+	  write_passing_alignment(aln_iter->second, pass_writer);
+	  write_passing_alignment(alignment, pass_writer);
 	}
 	else {
 	  unique_mapping++;
 	  std::string filter = "NO_UNIQUE_MAPPING";
-	  write_filtered_alignment(aln_iter->second, filter, rg_to_sample, filt_writer);
+	  write_filtered_alignment(aln_iter->second, filter, filt_writer);
 	}
 	potential_strs.erase(aln_iter);
       }
@@ -410,24 +418,23 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
 
     if (filter.empty()){
       unpaired_str_alns.push_back(aln_iter->second);
-      write_passing_alignment(aln_iter->second, rg_to_sample, pass_writer);
+      write_passing_alignment(aln_iter->second, pass_writer);
     }
     else
-      write_filtered_alignment(aln_iter->second, filter, rg_to_sample, filt_writer);
+      write_filtered_alignment(aln_iter->second, filter, filt_writer);
   }
   potential_strs.clear(); potential_mates.clear();
   
-  logger() << read_count << " reads overlapped region, of which "
-	   << "\n\t" << hard_clip        << " were hard clipped"
-	   << "\n\t" << split_alignment  << " had an SA (split alignment) BAM tag"
-	   << "\n\t" << read_has_N       << " had an 'N' base call"
-	   << "\n\t" << low_qual_score   << " had low base quality scores"
-	   << "\n\t" << not_spanning     << " did not span the STR"
-	   << "\n\t" << unique_mapping   << " did not have a unique mapping";
+  selective_logger() << read_count << " reads overlapped region, of which "
+		     << "\n\t" << hard_clip        << " were hard clipped"
+		     << "\n\t" << read_has_N       << " had an 'N' base call"
+		     << "\n\t" << low_qual_score   << " had low base quality scores"
+		     << "\n\t" << not_spanning     << " did not span the STR"
+		     << "\n\t" << unique_mapping   << " did not have a unique mapping";
   if (REQUIRE_PAIRED_READS)
-    logger() << "\n\t" << num_filt_unpaired_reads << " did not have a mate pair";
-  logger() << "\n\t" << (paired_str_alns.size()+unpaired_str_alns.size()) << " PASSED ALL FILTERS" << "\n"
-	   << "Found " << paired_str_alns.size() << " fully paired reads and " << unpaired_str_alns.size() << " unpaired reads for downstream analyses" << std::endl;
+    selective_logger() << "\n\t" << num_filt_unpaired_reads << " did not have a mate pair";
+  selective_logger() << "\n\t" << (paired_str_alns.size()+unpaired_str_alns.size()) << " PASSED ALL FILTERS" << "\n"
+		     << "Found " << paired_str_alns.size() << " fully paired reads and " << unpaired_str_alns.size() << " unpaired reads for downstream analyses" << std::endl;
     
   // Separate the reads based on their associated read groups
   std::map<std::string, int> rg_indices;
@@ -435,7 +442,7 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
     BamAlnList& aln_src  = (type == 0 ? paired_str_alns : unpaired_str_alns);
     while (!aln_src.empty()){
       const BamAlignment& aln = aln_src.back();
-      std::string rg = use_bam_rgs_ ? get_read_group(aln, rg_to_sample): rg_to_sample[aln.Filename()];
+      std::string rg = use_bam_rgs_ ? get_read_group(aln, rg_to_sample): rg_to_sample.find(aln.Filename())->second;
       int rg_index;
       auto index_iter = rg_indices.find(rg);
       if (index_iter == rg_indices.end()){
@@ -466,34 +473,33 @@ void BamProcessor::read_and_filter_reads(BamCramMultiReader& reader, std::string
   total_read_filter_time_ += locus_read_filter_time_;
 }
 
-void BamProcessor::process_regions(BamCramMultiReader& reader, std::string& region_file, std::string& fasta_file,
-				   std::map<std::string, std::string>& rg_to_sample, std::map<std::string, std::string>& rg_to_library,
+void BamProcessor::process_regions(BamCramMultiReader& reader, const std::string& region_file, const std::string& fasta_file,
+				   const std::map<std::string, std::string>& rg_to_sample, const std::map<std::string, std::string>& rg_to_library,
 				   BamWriter* pass_writer, BamWriter* filt_writer,
-				   std::ostream& out, int32_t max_regions, std::string chrom){
+				   std::ostream& out, int32_t max_regions, const std::string& chrom){
   std::vector<Region> regions;
-  readRegions(region_file, regions, max_regions, chrom, logger());
+  readRegions(region_file, max_regions, chrom, regions, full_logger());
   orderRegions(regions);
 
   FastaReader fasta_reader(fasta_file);
-  std::string ref_seq;
   const BamHeader* bam_header = reader.bam_header();
   int cur_chrom_id = -1; std::string chrom_seq;
   for (auto region_iter = regions.begin(); region_iter != regions.end(); region_iter++){
-    logger() << "\n\n" << "Processing region " << region_iter->chrom() << " " << region_iter->start() << " " << region_iter->stop() << std::endl;
+    full_logger() << "" << "Processing region " << region_iter->chrom() << " " << region_iter->start() << " " << region_iter->stop() << std::endl;
     int chrom_id = bam_header->ref_id(region_iter->chrom());
     if (chrom_id == -1 && region_iter->chrom().size() > 3 && region_iter->chrom().substr(0, 3).compare("chr") == 0)
       chrom_id = bam_header->ref_id(region_iter->chrom().substr(3));
 
     if (chrom_id == -1){
-      logger() << "\n" << "WARNING: No reference sequence for chromosome " << region_iter->chrom() << " found in BAMs"  << "\n"
-	       << "\t" << "Please ensure that the names of reference sequences in your BED file match those in you BAMs" << "\n"
-	       << "\t" << "Skipping region " << region_iter->chrom() << " " << region_iter->start() << " " << region_iter->stop() << "\n" << std::endl;
+      full_logger() << "\n" << "WARNING: No reference sequence for chromosome " << region_iter->chrom() << " found in BAMs"  << "\n"
+		    << "\t" << "Please ensure that the names of reference sequences in your BED file match those in you BAMs" << "\n"
+		    << "\t" << "Skipping region " << region_iter->chrom() << " " << region_iter->start() << " " << region_iter->stop() << "\n" << std::endl;
       continue;
     }
 
     if (region_iter->stop() - region_iter->start() > MAX_STR_LENGTH){
-      logger() << "Skipping region as the reference allele length exceeds the threshold (" << region_iter->stop()-region_iter->start() << " vs " << MAX_STR_LENGTH << ")" << "\n"
-	       << "You can increase this threshold using the --max-str-length option" << std::endl;
+      full_logger() << "Skipping region as the reference allele length exceeds the threshold (" << region_iter->stop()-region_iter->start() << " vs " << MAX_STR_LENGTH << ")" << "\n"
+		    << "You can increase this threshold using the --max-str-len option" << std::endl;
       continue;
     }
     
@@ -506,7 +512,7 @@ void BamProcessor::process_regions(BamCramMultiReader& reader, std::string& regi
     }
 
     if (region_iter->start() < 50 || region_iter->stop()+50 >= chrom_seq.size()){
-      logger() << "Skipping region within 50bp of the end of the contig" << std::endl;
+      full_logger() << "Skipping region within 50bp of the end of the contig" << std::endl;
       continue;
     }
 
@@ -521,13 +527,13 @@ void BamProcessor::process_regions(BamCramMultiReader& reader, std::string& regi
     std::vector<std::string> rg_names;
     std::vector<BamAlnList> paired_strs_by_rg, mate_pairs_by_rg, unpaired_strs_by_rg;
     RegionGroup region_group(*region_iter); // TO DO: Extend region groups to have multiple regions
-    read_and_filter_reads(reader, chrom_seq, region_group, rg_to_sample, rg_to_library, rg_names,
+    read_and_filter_reads(reader, chrom_seq, region_group, rg_to_sample, rg_names,
 			  paired_strs_by_rg, mate_pairs_by_rg, unpaired_strs_by_rg, pass_writer, filt_writer);
 
     // The user specified a list of samples to which we need to restrict the analyses
     // Discard reads for any samples not in this set
     if (!sample_set_.empty()){
-      logger() << "Restricting reads to the " << sample_set_.size() << " samples in the specified sample list" << std::endl;
+      selective_logger() << "Restricting reads to the " << sample_set_.size() << " samples in the specified sample list" << std::endl;
       unsigned int ins_index = 0;
       for (unsigned int i = 0; i < rg_names.size(); i++){
 	if (sample_set_.find(rg_names[i]) != sample_set_.end()){
@@ -549,7 +555,7 @@ void BamProcessor::process_regions(BamCramMultiReader& reader, std::string& regi
     }
 
     if (rem_pcr_dups_)
-      remove_pcr_duplicates(base_quality_, use_bam_rgs_, rg_to_library, paired_strs_by_rg, mate_pairs_by_rg, unpaired_strs_by_rg, logger());
+      remove_pcr_duplicates(base_quality_, use_bam_rgs_, rg_to_library, paired_strs_by_rg, mate_pairs_by_rg, unpaired_strs_by_rg, selective_logger());
 
     process_reads(paired_strs_by_rg, mate_pairs_by_rg, unpaired_strs_by_rg, rg_names, region_group, chrom_seq, out);
   }

@@ -14,8 +14,7 @@ const double LARGE_NEGATIVE = -10e6;
 
 class RepeatStutterInfo {
  private:
-  int period_;
-  int max_ins_, max_del_;
+  int period_, max_ins_, max_del_;
   StutterModel* stutter_model_;
   std::vector<int> allele_sizes_;
 
@@ -27,7 +26,7 @@ class RepeatStutterInfo {
   }
 
  public:
-  RepeatStutterInfo(int period, std::string& ref_allele, StutterModel* stutter_model){
+  RepeatStutterInfo(int period, const std::string& ref_allele, const StutterModel* stutter_model){
     period_        = period;
     max_ins_       = MAX_STUTTER_REPEAT_INS*period_;
     max_del_       = MAX_STUTTER_REPEAT_DEL*period_;
@@ -35,23 +34,43 @@ class RepeatStutterInfo {
     allele_sizes_.push_back(ref_allele.size());
   }
 
+  RepeatStutterInfo(const RepeatStutterInfo& other){
+    period_        = other.period_;
+    max_ins_       = other.max_ins_;
+    max_del_       = other.max_del_;
+    stutter_model_ = (other.stutter_model_ == NULL ? NULL : other.stutter_model_->copy());
+    allele_sizes_  = other.allele_sizes_;
+  }
+
+  RepeatStutterInfo& operator=(const RepeatStutterInfo& other){
+    if (&other != this){
+      if (stutter_model_ != NULL) delete stutter_model_;
+      period_        = other.period_;
+      max_ins_       = other.max_ins_;
+      max_del_       = other.max_del_;
+      stutter_model_ = (other.stutter_model_ == NULL ? NULL : other.stutter_model_->copy());
+      allele_sizes_  = other.allele_sizes_;
+    }
+    return *this;
+  }
+
   ~RepeatStutterInfo(){
     if (stutter_model_ != NULL)
       delete stutter_model_;
   }
 
-  void set_stutter_model(StutterModel* model){
+  void set_stutter_model(const StutterModel* model){
     if (stutter_model_ != NULL)
       delete stutter_model_;
     stutter_model_ = model->copy();
   }
 
-  inline StutterModel* get_stutter_model()     const  { return stutter_model_;  }
-  inline const int get_period()                const  { return period_;         }
-  inline const int max_insertion()             const  { return max_ins_;        }
-  inline const int max_deletion()              const  { return max_del_;        }
+  inline StutterModel* get_stutter_model() const  { return stutter_model_;  }
+  inline int get_period()                  const  { return period_;         }
+  inline int max_insertion()               const  { return max_ins_;        }
+  inline int max_deletion()                const  { return max_del_;        }
 
-  void add_alternate_allele(std::string& alt_allele){
+  void add_alternate_allele(const std::string& alt_allele){
     allele_sizes_.push_back((int)alt_allele.size());
   }
 

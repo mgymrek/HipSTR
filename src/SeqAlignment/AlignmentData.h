@@ -36,32 +36,25 @@ class Alignment {
   std::string sequence_;
   std::string alignment_;
   std::vector<bool> use_for_haps_;
+  bool rev_strand_;
 
  public:
-  Alignment(int32_t start, int32_t stop,
+   Alignment(int32_t start, int32_t stop, bool rev_strand,
 	    const std::string& name,
 	    const std::string& base_qualities,
 	    const std::string& sequence,
-	    const std::string& alignment){
-    start_          = start; 
-    stop_           = stop;
-    name_           = name;
-    base_qualities_ = base_qualities;
-    sequence_       = sequence;
-    alignment_      = alignment;
-    cigar_list_     = std::vector<CigarElement>();
-    use_for_haps_   = std::vector<bool>();
+	    const std::string& alignment)
+    : name_(name), base_qualities_(base_qualities), sequence_(sequence), alignment_(alignment){
+    start_      = start;
+    stop_       = stop;
+    rev_strand_ = rev_strand;
   }
 
-  Alignment(const std::string& name){
-    name_           = name;
-    start_          = 0; 
-    stop_           = -1;
-    base_qualities_ = "";
-    sequence_       = "";
-    alignment_      = "";
-    cigar_list_     = std::vector<CigarElement>();
-    use_for_haps_   = std::vector<bool>();
+  explicit Alignment(const std::string& name)
+    : name_(name){
+    start_      = 0;
+    stop_       = -1;
+    rev_strand_ = false;
   }
 
   inline const std::string& get_name()   const { return name_;   }
@@ -70,7 +63,7 @@ class Alignment {
   inline void set_start(int32_t start)         { start_ = start; }
   inline void set_stop(int32_t stop)           { stop_  = stop;  }
 
-  bool operator<(const Alignment &aln)  const {
+  bool operator<(const Alignment &aln) const {
     if (start_ != aln.get_start())
       return start_ < aln.get_start();
     if (stop_ != aln.get_stop())
@@ -80,7 +73,7 @@ class Alignment {
 
   void check_CIGAR_string(){
     unsigned int num = 0;
-    for (std::vector<CigarElement>::const_iterator iter = cigar_list_.begin(); iter != cigar_list_.end(); iter++)
+    for (auto iter = cigar_list_.begin(); iter != cigar_list_.end(); ++iter)
       if (iter->get_type() != 'D' && iter->get_type() != 'H')
 	num += iter->get_num();
     if (num != sequence_.size()){
@@ -92,33 +85,26 @@ class Alignment {
       assert(false);
     }
   }
-  
-  double sum_log_prob_correct(BaseQuality& base_quality) const {
-    double total = 0.0;
-    for (unsigned int i = 0; i < base_qualities_.size(); i++)
-      total += base_quality.log_prob_correct(base_qualities_[i]);
-    return total;
-  }
 
-  int num_indels() const{
+  int num_indels() const {
     int num = 0;
-    for (std::vector<CigarElement>::const_iterator iter = cigar_list_.begin(); iter != cigar_list_.end(); iter++)
+    for (auto iter = cigar_list_.begin(); iter != cigar_list_.end(); ++iter)
       if (iter->get_type() == 'I' || iter->get_type() == 'D')
 	num++;
     return num;
   }
   
-  int num_mismatches() const{
+  int num_mismatches() const {
     int num = 0;
-    for (std::vector<CigarElement>::const_iterator iter = cigar_list_.begin(); iter != cigar_list_.end(); iter++)
+    for (auto iter = cigar_list_.begin(); iter != cigar_list_.end(); ++iter)
       if (iter->get_type() == 'X')
 	num++;
     return num;
   }
 
-  int num_matched_bases() const{
+  int num_matched_bases() const {
     int num = 0;
-    for (std::vector<CigarElement>::const_iterator iter = cigar_list_.begin(); iter != cigar_list_.end(); iter++)
+    for (auto iter = cigar_list_.begin(); iter != cigar_list_.end(); ++iter)
       if (iter->get_type() == 'M' || iter->get_type() == '=')
 	num += iter->get_num();
     return num;
@@ -140,6 +126,7 @@ class Alignment {
   inline const std::string& get_alignment()                const { return alignment_;      }
   inline const std::vector<CigarElement>& get_cigar_list() const { return cigar_list_;     }
   bool use_for_hap_generation(int region_index) const { return use_for_haps_[region_index]; }
+  bool is_from_reverse_strand() const { return rev_strand_; }
 
   std::string getCigarString() const {
     std::stringstream cigar_str;

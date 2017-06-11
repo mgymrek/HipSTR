@@ -20,31 +20,31 @@ void precompute_integer_logs(){
 
 double int_log(int val){ return INT_LOGS[val]; }
 
-double sum(double* begin, double* end){
+double sum(const double* begin, const double* end){
   double total = 0.0;
-  for (double* iter = begin; iter != end; iter++)
+  for (const double* iter = begin; iter != end; iter++)
     total += *iter;
   return total;
 }
 
-double sum(std::vector<double>& vals){
+double sum(const std::vector<double>& vals){
   double total = 0.0;
   for (auto iter = vals.begin(); iter != vals.end(); iter++)
     total += *iter;
   return total;
 }
 
-int sum(std::vector<bool>& vals){
+int sum(const std::vector<bool>& vals){
   int total = 0;
   for (auto iter = vals.begin(); iter != vals.end(); iter++)
     total += *iter;
   return total;
 }
 
-double log_sum_exp(double* begin, double* end){
+double log_sum_exp(const double* begin, const double* end){
   double max_val = *std::max_element(begin, end);
   double total   = 0.0;
-  for (double* iter = begin; iter != end; iter++)
+  for (const double* iter = begin; iter != end; iter++)
     total += exp(*iter - max_val);
   return max_val + log(total);
 }
@@ -61,44 +61,12 @@ double log_sum_exp(double log_v1, double log_v2, double log_v3){
   return max_val + log(exp(log_v1-max_val) + exp(log_v2-max_val) + exp(log_v3-max_val));
 }
 
-double log_sum_exp(std::vector<double>& log_vals){
+double log_sum_exp(const std::vector<double>& log_vals){
   double max_val = *std::max_element(log_vals.begin(), log_vals.end());
   double total   = 0;
   for (auto iter = log_vals.begin(); iter != log_vals.end(); iter++)
     total += exp(*iter - max_val);
   return max_val + log(total);
-}
-
-double expected_value(double* log_likelihoods, std::vector<int>& vals){
-  double total_LL = log_sum_exp(log_likelihoods, log_likelihoods+vals.size());
-  double total    = 0.0;
-  for (unsigned int i = 0; i < vals.size(); i++)
-    total += exp(log_likelihoods[i]-total_LL)*vals[i];
-  return total;
-}
-
-double expected_value(std::vector<double>& log_likelihoods, std::vector<int>& vals){
-  assert(log_likelihoods.size() == vals.size());
-  double total_LL = log_sum_exp(log_likelihoods);
-  double total    = 0.0;
-  for (unsigned int i = 0; i < vals.size(); i++)
-    total += exp(log_likelihoods[i]-total_LL)*vals[i];
-  return total;
-}
-
-
-void fast_update_streaming_log_sum_exp(double log_val, double& max_val, double& total){
-  if (log_val <= max_val)
-    total += fasterexp(log_val - max_val);
-  else {
-    total  *= fasterexp(max_val-log_val);
-    total  += 1.0;
-    max_val = log_val;
-  }
-}
-
-double fast_finish_streaming_log_sum_exp(double max_val, double total){
-  return max_val + fasterlog(total);
 }
 
 void update_streaming_log_sum_exp(double log_val, double& max_val, double& total){
@@ -126,7 +94,7 @@ double fast_log_sum_exp(double log_v1, double log_v2){
   }
 }
 
-double fast_log_sum_exp(std::vector<double>& log_vals){
+double fast_log_sum_exp(const std::vector<double>& log_vals){
   double max_val = *std::max_element(log_vals.begin(), log_vals.end());
   double total   = 0;
   for (auto iter = log_vals.begin(); iter != log_vals.end(); iter++){

@@ -1,11 +1,5 @@
 #include "haplotype_tracker.h"
 
-std::ostream& operator<< (std::ostream &out, DiploidEditDistance& edit_distance){
-  out << "\t" << edit_distance.distances_[0] << " " << edit_distance.distances_[1]
-      << " "  << edit_distance.distances_[2] << " " << edit_distance.distances_[3];
-  return out;
-}
-
 void DiploidHaplotype::add_snp(int gt_a, int gt_b){
   assert(snps_1_.size() > 0 && snps_2_.size() > 0);
   if (gt_a == 1) snps_1_.back() |= set_mask_;
@@ -19,7 +13,7 @@ void DiploidHaplotype::add_snp(int gt_a, int gt_b){
   }
 }
 
-void DiploidHaplotype::extract_set_bits(int64_t value, int offset, std::set<int>& mismatch_indices){
+void DiploidHaplotype::extract_set_bits(int64_t value, int offset, std::set<int>& mismatch_indices) const {
   while (value){
     if (value & 1)
       mismatch_indices.insert(offset);
@@ -29,10 +23,10 @@ void DiploidHaplotype::extract_set_bits(int64_t value, int offset, std::set<int>
 }
 
 void DiploidHaplotype::add_mismatched_sites(int hap_index, DiploidHaplotype& other_hap, int other_index,
-					    std::set<int>& mismatch_indices){
+					    std::set<int>& mismatch_indices) const {
   assert((hap_index == 0 || hap_index == 1) && (other_index == 0 || other_index == 1));
-  std::deque<int64_t>& hap_a = (hap_index == 0 ? snps_1_ : snps_2_);
-  std::deque<int64_t>& hap_b = (other_index == 0 ? other_hap.snps_1_ : other_hap.snps_2_);
+  const std::deque<int64_t>& hap_a = (hap_index == 0 ? snps_1_ : snps_2_);
+  const std::deque<int64_t>& hap_b = (other_index == 0 ? other_hap.snps_1_ : other_hap.snps_2_);
   assert(hap_a.size() == hap_b.size());
   auto iter_a = hap_a.begin();
   auto iter_b = hap_b.begin();
@@ -61,7 +55,7 @@ void DiploidHaplotype::remove_next_snp(){
   } 
 }
 
-void HaplotypeTracker::add_snp(VCF::Variant& variant){
+void HaplotypeTracker::add_snp(const VCF::Variant& variant){
   num_snps_++;
   positions_.push_back(variant.get_position());
   
@@ -88,14 +82,13 @@ void HaplotypeTracker::add_snp(VCF::Variant& variant){
   }
 }
 
-void HaplotypeTracker::advance(std::string chrom, int32_t position, std::set<std::string>& sites_to_skip, std::ostream& logger){
-  logger << "Advancing haplotype tracker";
+void HaplotypeTracker::advance(const std::string& chrom, int32_t position, const std::set<std::string>& sites_to_skip){
   int32_t start_of_window = (position >= window_size_ ? position - window_size_ : 0);
   int32_t end_of_window   = position + window_size_;
   if (chrom.compare(chrom_) != 0){
     chrom_ = chrom;
     reset();
-    if(!snp_vcf_.set_region(chrom, start_of_window))
+    if (!snp_vcf_.set_region(chrom, start_of_window))
       printErrorAndDie("Failed to set the region to chromosome " + chrom + " in the SNP VCF. Please check the SNP VCF and rerun the analysis");
   }
   else {
@@ -113,7 +106,9 @@ void HaplotypeTracker::advance(std::string chrom, int32_t position, std::set<std
   // Incorporate new SNPs within the window
   VCF::Variant snp_variant;
   while (last_snp_position() < end_of_window && snp_vcf_.get_next_variant(snp_variant)){
-    std::string key = snp_variant.get_chromosome() + ":" + std::to_string(snp_variant.get_position());
+    std::stringstream ss;
+    ss << snp_variant.get_chromosome() << ":" << snp_variant.get_position();
+    std::string key = ss.str();
     if (sites_to_skip.find(key) != sites_to_skip.end())
       continue;
     add_snp(snp_variant);
@@ -122,7 +117,7 @@ void HaplotypeTracker::advance(std::string chrom, int32_t position, std::set<std
   // Remove SNPs to left of window
   while (next_snp_position() < start_of_window && next_snp_position() != -1)
     remove_next_snp();
-  logger << " done" << std::endl;
+  //logger << " done" << std::endl;
 }
 
 /* Analyze edit distances between the phased SNP haplotypes of each child and its parents. Returns true iff all the children in the family

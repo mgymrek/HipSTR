@@ -11,7 +11,7 @@ extern const int ALIGN_WINDOW_WIDTH = 75;
  Realign read to reference region using left alignment variant. Store the new alignment information using
  the provided Alignment reference. Converts the bases to their upper case variants
  */
-bool realign(BamAlignment& alignment, std::string& ref_sequence, Alignment& new_alignment){
+bool realign(BamAlignment& alignment, const std::string& ref_sequence, Alignment& new_alignment){
     int32_t start        = std::max(alignment.Position()-ALIGN_WINDOW_WIDTH-1, 0);
     int32_t stop         = std::min(alignment.GetEndPosition()+ALIGN_WINDOW_WIDTH-1, (int32_t)(ref_sequence.size()-1));
     int32_t length       = stop-start+1;
@@ -72,7 +72,7 @@ bool realign(BamAlignment& alignment, std::string& ref_sequence, Alignment& new_
     std::string base_qualities = alignment.Qualities().substr(num_head_sclips, read_seq.size()-num_head_sclips-num_back_sclips);
     std::string sequence       = uppercase(read_seq.substr(num_head_sclips, read_seq.size()-num_head_sclips-num_back_sclips));
     std::string alignment_seq  = uppercase(read_al.substr(num_head_sclips+num_lead, read_al.size()-num_head_sclips-num_lead-num_trail-num_back_sclips));
-    new_alignment = Alignment(start_position, end_position, alignment.Name(), base_qualities, sequence, alignment_seq);
+    new_alignment = Alignment(start_position, end_position, alignment.IsReverseStrand(), alignment.Name(), base_qualities, sequence, alignment_seq);
 
     // Add CIGAR data while approriately trimming for clipped bases
     int head = num_head_sclips, tail = num_back_sclips;
@@ -99,11 +99,11 @@ bool realign(BamAlignment& alignment, std::string& ref_sequence, Alignment& new_
     return aligned;
 }
 
-void convertAlignment(BamAlignment& alignment, std::string& ref_sequence, Alignment& new_alignment){
+void convertAlignment(BamAlignment& alignment, const std::string& ref_sequence, Alignment& new_alignment){
   std::string read_sequence = uppercase(alignment.QueryBases());
   int32_t seq_index = 0, ref_index = alignment.Position();
   std::stringstream aln_ss;
-  new_alignment = Alignment(alignment.Position(), alignment.GetEndPosition()-1, alignment.Name(), alignment.Qualities(), read_sequence, "");
+  new_alignment = Alignment(alignment.Position(), alignment.GetEndPosition()-1, alignment.IsReverseStrand(), alignment.Name(), alignment.Qualities(), read_sequence, "");
   for (auto cigar_iter = alignment.CigarData().begin(); cigar_iter != alignment.CigarData().end(); cigar_iter++){
     int32_t cigar_index    = 0;
     char prev_cigar_type   = '=';

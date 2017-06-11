@@ -19,7 +19,7 @@
 #include "vcf_reader.h"
 #include "version.h"
 
-bool file_exists(std::string path){
+bool file_exists(const std::string& path){
   return (access(path.c_str(), F_OK) != -1);
 }
 
@@ -84,6 +84,8 @@ void print_usage(int def_mdist, int def_min_reads, int def_max_reads, int def_ma
 	    << "Other optional parameters:" << "\n"
 	    << "\t" << "--help                                "  << "\t" << "Print this help message and exit"                                                     << "\n"
 	    << "\t" << "--version                             "  << "\t" << "Print HipSTR version and exit"                                                        << "\n"
+	    << "\t" << "--quiet                               "  << "\t" << "Only output terse logging messages (Default = output all messages)"                   << "\n"
+	    << "\t" << "--silent                              "  << "\t" << "Don't output any logging messages  (Default = output all messages)"                   << "\n"
 	    << "\t" << "--def-stutter-model                   "  << "\t" << "For each locus, use a stutter model with PGEOM=0.9 and UP=DOWN=0.05 for in-frame"     << "\n"
 	    << "\t" << "                                      "  << "\t" << " artifacts and PGEOM=0.9 and UP=DOWN=0.01 for out-of-frame artifacts"                 << "\n"
 	    << "\t" << "--chrom              <chrom>          "  << "\t" << "Only consider STRs on this chromosome"                                                << "\n"
@@ -127,6 +129,8 @@ void parse_command_line_args(int argc, char** argv,
   int print_help    = 0;
   int viz_left_alns = 0;
   int print_version = 0;
+  int quiet_log     = 0;
+  int silent_log    = 0;
 
   static struct option long_options[] = {
     {"10x-bams",        no_argument, &bams_from_10x, 1},
@@ -159,6 +163,8 @@ void parse_command_line_args(int argc, char** argv,
     {"use-unpaired",       no_argument, &(bam_processor.REQUIRE_PAIRED_READS), 0},
     {"dont-use-all-reads", no_argument, &use_all_reads, 0},
     {"def-stutter-model",  no_argument, &def_stutter_model, 1},
+    {"quiet",              no_argument, &quiet_log, 1},
+    {"silent",             no_argument, &silent_log, 1},
     {"skip-genotyping",    no_argument, &skip_genotyping, 1},
     {"snp-vcf",         required_argument, 0, 'v'},
     {"stutter-in",      required_argument, 0, 'm'},
@@ -175,10 +181,9 @@ void parse_command_line_args(int argc, char** argv,
   };
 
   std::string filename;
-  int c;
   while (true){
     int option_index = 0;
-    c = getopt_long(argc, argv, "b:B:c:d:D:e:f:F:g:i:j:k:l:m:n:o:p:q:r:s:S:t:u:v:w:x:y:z:", long_options, &option_index);
+    int c = getopt_long(argc, argv, "b:B:c:d:D:e:f:F:g:i:j:k:l:m:n:o:p:q:r:s:S:t:u:v:w:x:y:z:", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -306,6 +311,10 @@ void parse_command_line_args(int argc, char** argv,
   }
   if (viz_left_alns)
     bam_processor.visualize_left_alns();
+  if (quiet_log)
+    bam_processor.suppress_most_logging();
+  if (silent_log)
+    bam_processor.suppress_all_logging();
 }
 
 int main(int argc, char** argv){
@@ -336,7 +345,7 @@ int main(int argc, char** argv){
     bam_processor.set_log(log_file);
   if (bams_from_10x){
     bam_processor.use_10x_bam_tags();
-    bam_processor.logger() << "Using 10X BAM tags to genotype and phase STRs (WARNING: Any arguments provided to --snp-vcf will be ignored)" << std::endl;
+    bam_processor.full_logger() << "Using 10X BAM tags to genotype and phase STRs (WARNING: Any arguments provided to --snp-vcf will be ignored)" << std::endl;
   }
   if (use_all_reads == 1)     bam_processor.REQUIRE_SPANNING = false;
   if (output_gls)             bam_processor.output_gls();
@@ -351,8 +360,12 @@ int main(int argc, char** argv){
     printErrorAndDie("You must specify either the --bams or --bam-files option");
   else if ((!bamfile_string.empty()) && (!bamlist_string.empty()))
     printErrorAndDie("You can only specify one of the --bams or --bam-files options");
-  else if (region_file.empty())
-    printErrorAndDie("--regions option required");
+  else if (region_file.empty()){
+    std::stringstream err;
+    err << "--regions option required" << "\n"
+	<< "\tVisit https://github.com/HipSTR-Tool/HipSTR-references to view premade region files available for various model organisms";
+    printErrorAndDie(err.str());
+  }
   else if (fasta_file.empty())
     printErrorAndDie("--fasta option required");
   else if (!skip_genotyping && str_vcf_out_file.empty())
@@ -379,7 +392,7 @@ int main(int argc, char** argv){
 	bam_files.push_back(line);
     input.close();
   }
-  bam_processor.logger() << "Detected " << bam_files.size() << " BAM/CRAM files" << std::endl;
+  bam_processor.full_logger() << "Detected " << bam_files.size() << " BAM/CRAM files" << std::endl;
 
   // Open all BAM/CRAM files
   std::string cram_fasta_path = fasta_file;
@@ -408,7 +421,7 @@ int main(int argc, char** argv){
       rg_samples.insert(read_groups[i]);
     }
     bam_processor.use_custom_read_groups();
-    bam_processor.logger() << "User-specified read groups for " << rg_samples.size() << " unique samples" << std::endl;
+    bam_processor.full_logger() << "User-specified read groups for " << rg_samples.size() << " unique samples" << std::endl;
   }
   else {
     for (unsigned int i = 0; i < bam_files.size(); i++){
@@ -438,9 +451,9 @@ int main(int argc, char** argv){
       }
     }
 
-    bam_processor.logger() << "BAMs/CRAMs contain unique read group IDs for "
-			   << rg_libs.size()    << " unique libraries and "
-			   << rg_samples.size() << " unique samples" << std::endl;
+    bam_processor.full_logger() << "BAMs/CRAMs contain unique read group IDs for "
+				<< rg_libs.size()    << " unique libraries and "
+				<< rg_samples.size() << " unique samples" << std::endl;
   }
 
   BamWriter* bam_pass_writer = NULL;
@@ -484,7 +497,7 @@ int main(int argc, char** argv){
   if (!skip_genotyping){
     if (!string_ends_with(str_vcf_out_file, ".gz"))
       printErrorAndDie("Path for STR VCF output file must end in .gz as it will be bgzipped");
-    bam_processor.set_output_str_vcf(str_vcf_out_file, full_command, rg_samples);
+    bam_processor.set_output_str_vcf(str_vcf_out_file, fasta_file, full_command, rg_samples);
   }
 
   if (!hap_chr_string.empty()){
@@ -516,13 +529,13 @@ int main(int argc, char** argv){
     std::set<std::string> samples_with_data(snp_vcf.get_samples().begin(), snp_vcf.get_samples().end());
 
     std::vector<NuclearFamily> families;
-    extract_pedigree_nuclear_families(fam_file, samples_with_data, families, bam_processor.logger());
+    extract_pedigree_nuclear_families(fam_file, samples_with_data, families, bam_processor.full_logger());
     if (families.size() != 0)
       bam_processor.use_pedigree_to_filter_snps(families, snp_vcf_file);
   }
 
   // Run analysis
-  bam_processor.process_regions(reader, region_file, fasta_file, rg_ids_to_sample, rg_ids_to_library, bam_pass_writer, bam_filt_writer, std::cout, 1000000, chrom);
+  bam_processor.process_regions(reader, region_file, fasta_file, rg_ids_to_sample, rg_ids_to_library, bam_pass_writer, bam_filt_writer, std::cout, 10000000, chrom);
   bam_processor.finish();
 
   if (bam_pass_writer != NULL) delete bam_pass_writer;
@@ -530,7 +543,7 @@ int main(int argc, char** argv){
 
 
   total_time = (clock() - total_time)/CLOCKS_PER_SEC;
-  bam_processor.logger() << "HipSTR execution finished: Total runtime = " << total_time << " sec" << "\n"
-			 << "-----------------\n\n" << std::endl;
+  bam_processor.full_logger() << "HipSTR execution finished: Total runtime = " << total_time << " sec" << "\n"
+			      << "-----------------\n\n" << std::endl;
   return 0;  
 }

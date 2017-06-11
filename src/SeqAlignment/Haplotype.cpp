@@ -5,37 +5,6 @@
 #include "Haplotype.h"
 #include "NeedlemanWunsch.h"
 
-bool Haplotype::position_to_haplotype_index(int32_t pos, int& haplotype_index){
-  haplotype_index = 0;
-  if (inc_rev_){
-    assert(pos > blocks_.back()->end() && pos <= blocks_.front()->start());
-    for (int i = 0; i < blocks_.size(); i++){
-      if (pos > blocks_[i]->end()){
-	if (counts_[i] != 0)
-	  return false;
-	haplotype_index += blocks_[i]->start()-pos;
-	return true;
-      }
-      else
-	haplotype_index += get_seq(i).size();
-    }
-  }
-  else {
-    assert(pos >= blocks_.front()->start() && pos < blocks_.back()->end());
-    for (int i = 0; i < blocks_.size(); i++){
-      if (pos < blocks_[i]->end()){
-	if (counts_[i] != 0)
-	  return false;
-	haplotype_index += pos-blocks_[i]->start();
-	return true;
-      }
-      else
-	haplotype_index += get_seq(i).size();
-    }
-  }
-  assert(false);
-}
-
 void Haplotype::adjust_indels(std::string& ref_hap_al, std::string& alt_hap_al){
   assert(blocks_.size() == 3);
   int32_t ref_pos = blocks_[0]->start(), str_pos = blocks_[1]->start();
@@ -237,7 +206,7 @@ void Haplotype::go_to(int hap_index){
 }
 
 void Haplotype::print_block_structure(int max_ref_len, int max_other_len, bool indent,
-				      std::ostream& out){
+				      std::ostream& out) const {
   int max_rows = 0;
   for (int i = 0; i < num_blocks(); i++)
     max_rows = std::max(max_rows, blocks_[i]->num_options());
@@ -267,7 +236,7 @@ void Haplotype::print_block_structure(int max_ref_len, int max_other_len, bool i
   }
 }
 
-unsigned int Haplotype::left_homopolymer_len(char c, int block_index){
+unsigned int Haplotype::left_homopolymer_len(char c, int block_index) const {
   unsigned int total = 0;
   while (block_index >= 0){
     const std::string& seq = get_seq(block_index);
@@ -284,7 +253,7 @@ unsigned int Haplotype::left_homopolymer_len(char c, int block_index){
   return total;
 }
  
-unsigned int Haplotype::right_homopolymer_len(char c, int block_index){
+unsigned int Haplotype::right_homopolymer_len(char c, int block_index) const {
   unsigned int total = 0;
   while (block_index < blocks_.size()){
     const std::string& seq = get_seq(block_index);
@@ -301,7 +270,7 @@ unsigned int Haplotype::right_homopolymer_len(char c, int block_index){
   return total;
 }
 
-unsigned int Haplotype::homopolymer_length(int block_index, int base_index){
+unsigned int Haplotype::homopolymer_length(int block_index, int base_index) const {
   HapBlock* block        = blocks_[block_index];
   const std::string& seq = block->get_seq(counts_[block_index]);
   unsigned int llen = block->left_homopolymer_len(counts_[block_index],  base_index);

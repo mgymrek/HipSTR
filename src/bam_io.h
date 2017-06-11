@@ -61,17 +61,14 @@ public:
     end_pos_ = -1;
   }
 
-  BamAlignment(const BamAlignment &aln){
+  BamAlignment(const BamAlignment &aln)
+    : bases_(aln.bases_), qualities_(aln.qualities_), cigar_ops_(aln.cigar_ops_), file_(aln.file_){
     b_ = bam_init1();
     bam_copy1(b_, aln.b_);
-    file_      = aln.file_;
     built_     = aln.built_;
     length_    = aln.length_;
     pos_       = aln.pos_;
     end_pos_   = aln.end_pos_;
-    bases_     = aln.bases_;
-    qualities_ = aln.qualities_;
-    cigar_ops_ = aln.cigar_ops_;
   }
 
   BamAlignment& operator=(const BamAlignment& aln){
@@ -164,7 +161,7 @@ public:
   }
   */
 
-  bool AddStringTag(const char tag[2], std::string& value){
+  bool AddStringTag(const char tag[2], const std::string& value){
     if (HasTag(tag))
       return false;
     return (bam_aux_append(b_, tag, 'Z', value.size()+1, (uint8_t*)value.c_str()) == 0);
@@ -324,17 +321,10 @@ class ReadGroup {
   std::string library_;
 
  public:
-  ReadGroup(){
-    id_      = "";
-    sample_  = "";
-    library_ = "";
-  }
+  ReadGroup(){}
 
-  ReadGroup(const std::string& id, const std::string& sample, const std::string& library){
-    id_      = id;
-    sample_  = sample;
-    library_ = library;
-  }
+  ReadGroup(const std::string& id, const std::string& sample, const std::string& library)
+    : id_(id), sample_(sample), library_(library){}
 
   bool HasID()      const { return !id_.empty();      }
   bool HasSample()  const { return !sample_.empty();  }
@@ -366,7 +356,7 @@ class BamHeader {
  public:
   bam_hdr_t *header_;
 
-  BamHeader(bam_hdr_t *header){
+  explicit BamHeader(bam_hdr_t *header){
     header_ = bam_hdr_dup(header);
     for (int32_t i = 0; i < header_->n_targets; i++){
       seq_names_.push_back(std::string(header_->target_name[i]));
@@ -374,6 +364,24 @@ class BamHeader {
       seq_indices_.insert(std::pair<std::string, int32_t>(seq_names_.back(), i));
     }
     parse_read_groups();
+  }
+
+  BamHeader(const BamHeader& other){
+    header_      = bam_hdr_dup(other.header_);
+    seq_indices_ = other.seq_indices_;
+    seq_names_   = other.seq_names_;
+    seq_lengths_ = other.seq_lengths_;
+    read_groups_ = other.read_groups_;
+  }
+
+  BamHeader& operator=(const BamHeader& other){
+    bam_hdr_destroy(header_);
+    header_      = bam_hdr_dup(other.header_);
+    seq_indices_ = other.seq_indices_;
+    seq_names_   = other.seq_names_;
+    seq_lengths_ = other.seq_lengths_;
+    read_groups_ = other.read_groups_;
+    return *this;
   }
 
   const std::vector<uint32_t>& seq_lengths()  const { return seq_lengths_; }
@@ -427,13 +435,17 @@ private:
   uint64_t    min_offset_; // Offset after first alignment
   BamAlignment first_aln_; // First alignment
 
-  bool file_exists(std::string path){
+  // Private unimplemented copy constructor and assignment operator to prevent operations
+  BamCramReader(const BamCramReader& other);
+  BamCramReader& operator=(const BamCramReader& other);
+
+  bool file_exists(const std::string& path){
     return (access(path.c_str(), F_OK) != -1);
   }
 
 public:
-  BamCramReader(std::string& path, std::string fasta_path = ""){
-    path_ = path;
+  BamCramReader(const std::string& path, std::string fasta_path = "")
+    : path_(path), chrom_(""){
 
     // Open the file itself
     if (!file_exists(path))
@@ -466,9 +478,8 @@ public:
     if (idx_ == NULL) 
       printErrorAndDie("Failed to load the index for file " + path);
 
-    iter_  = NULL;
-    chrom_ = "";
-    start_ = -1;
+    iter_       = NULL;
+    start_      = -1;
     min_offset_ = 0;
   }
 
@@ -479,6 +490,8 @@ public:
     bam_hdr_destroy(hdr_);
     delete header_;
     sam_close(in_);
+
+    hts_idx_destroy(idx_);
 
     if (iter_ != NULL)
       hts_itr_destroy(iter_);
@@ -504,11 +517,15 @@ class BamCramMultiReader {
   std::vector<std::pair<int32_t, int32_t> > aln_heap_;
   int merge_type_;
 
+  // Private unimplemented copy constructor and assignment operator to prevent operations
+  BamCramMultiReader(const BamCramMultiReader& other);
+  BamCramMultiReader& operator=(const BamCramMultiReader& other);
+
  public:
   const static int ORDER_ALNS_BY_POSITION = 0;
   const static int ORDER_ALNS_BY_FILE     = 1;
 
-  BamCramMultiReader(std::vector<std::string>& paths, std::string fasta_path = "", int merge_type = ORDER_ALNS_BY_POSITION){
+  BamCramMultiReader(const std::vector<std::string>& paths, std::string fasta_path = "", int merge_type = ORDER_ALNS_BY_POSITION){
     if (paths.empty())
       printErrorAndDie("Must provide at least one file to BamCramMultiReader constructor");
     if (merge_type != ORDER_ALNS_BY_POSITION && merge_type != ORDER_ALNS_BY_FILE)
@@ -526,7 +543,7 @@ class BamCramMultiReader {
       delete bam_readers_[i];
   }
 
-  int get_merge_type(){ return merge_type_; }
+  int get_merge_type() const { return merge_type_; }
 
   const BamHeader* bam_header() const {
     return bam_readers_[0]->bam_header();
@@ -554,8 +571,12 @@ class BamWriter {
  private:
   BGZF* output_;
 
+  // Private unimplemented copy constructor and assignment operator to prevent operations
+  BamWriter(const BamWriter& other);
+  BamWriter& operator=(const BamWriter& other);
+
  public:
-  BamWriter(std::string& path, const BamHeader* bam_header){
+  BamWriter(const std::string& path, const BamHeader* bam_header){
     std::string mode = "w";
     output_ = bgzf_open(path.c_str(), mode.c_str());
     if (output_ == NULL)
